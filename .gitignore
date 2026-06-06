@@ -1,0 +1,28 @@
+# Environment
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Data (raw PDFs can be large — regenerate with fetch script)
+data/raw/
+data/cleaned/
+data/chunks/
+
+# Vector store persisted index (rebuild with embed script)
+vectorstore/chroma_db/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
