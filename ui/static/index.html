@@ -86,17 +86,71 @@
       addMessage(question, "user");
 
       const thinkingEl = addMessage("Thinking...", "agent thinking");
+      let agentDiv = null;
+      let fullText = "";
 
       try {
-        const res = await fetch("/chat", {
+        const res = await fetch("/chat/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ question, session_id: sessionId }),
         });
-        const data = await res.json();
-        sessionId = data.session_id;
-        thinkingEl.remove();
-        addMessage(data.answer, "agent", data.cached, data.duration_s);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop(); // keep any incomplete chunk
+
+          for (const part of parts) {
+            if (!part.startsWith("data: ")) continue;
+            const event = JSON.parse(part.slice(6));
+
+            // Cache hit — render immediately, no streaming needed
+            if (event.answer) {
+              thinkingEl.remove();
+              addMessage(event.answer, "agent", true, event.duration_s);
+              sessionId = event.session_id;
+              continue;
+            }
+
+            // Status update (e.g. "Searching 3GPP specifications...")
+            if (event.status) {
+              thinkingEl.textContent = event.status;
+            }
+
+            // Incoming token — build the message div character by character
+            if (event.token) {
+              if (!agentDiv) {
+                thinkingEl.remove();
+                agentDiv = document.createElement("div");
+                agentDiv.className = "message agent";
+                chatWindow.appendChild(agentDiv);
+              }
+              fullText += event.token;
+              agentDiv.textContent = fullText; // plain text while streaming
+              chatWindow.scrollTop = chatWindow.scrollHeight;
+            }
+
+            // Stream complete — re-render as markdown and add timing
+            if (event.done) {
+              sessionId = event.session_id;
+              if (agentDiv) {
+                agentDiv.innerHTML = marked.parse(fullText);
+                const meta = document.createElement("div");
+                meta.className = "duration";
+                meta.textContent = `⏱ ${event.duration_s}s`;
+                agentDiv.appendChild(meta);
+              }
+            }
+          }
+        }
       } catch (err) {
         thinkingEl.textContent = "Error: could not reach the server.";
         thinkingEl.classList.remove("thinking");

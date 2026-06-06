@@ -23,16 +23,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from config import DATA_RAW_PATH
 
 SPECS_TO_FETCH = [
-    {
-        "series": "36",
-        "spec": "36300",
-        "description": "LTE Overall Description (E-UTRA/E-UTRAN)",
-    },
-    {
-        "series": "38",
-        "spec": "38300",
-        "description": "5G NR Overall Description",
-    },
+    # LTE architecture overview
+    {"series": "36", "spec": "36300", "description": "LTE Overall Description (E-UTRA/E-UTRAN)"},
+    # LTE procedures — cell selection, RACH, RRC connection setup
+    {"series": "36", "spec": "36304", "description": "LTE UE Procedures in Idle Mode (cell selection)"},
+    {"series": "36", "spec": "36331", "description": "LTE RRC Protocol (connection setup, handover)"},
+    # 5G NR
+    {"series": "38", "spec": "38300", "description": "5G NR Overall Description"},
+    {"series": "38", "spec": "38331", "description": "5G NR RRC Protocol"},
 ]
 
 # Folder name on 3GPP FTP uses a dot: 36.300, 38.300, etc.

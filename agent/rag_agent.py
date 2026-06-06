@@ -33,7 +33,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.tools.retriever import create_retriever_tool
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessageChunk
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
@@ -79,10 +79,13 @@ def build_agent():
     # --- System prompt ---
     system_prompt = (
         "You are a 3GPP standards expert assistant specialising in LTE (4G) and 5G NR. "
-        "When answering questions, always search the specification documents first using "
-        "the search_3gpp_specs tool. Base your answers on what you find there. "
-        "If the documents don't contain the answer, say so clearly rather than guessing. "
-        "Cite which specification (e.g. TS 38.300) your answer comes from when possible."
+        "Use the search_3gpp_specs tool to find relevant information. "
+        "Use at most two searches. "
+        "IMPORTANT: Never narrate your search process. Never start a response with "
+        "'Let me search', 'I will search', 'Based on my search', or similar phrases. "
+        "Start every response directly with the answer content. "
+        "If the documents don't contain the answer, say so clearly. "
+        "Cite the specification (e.g. TS 38.300) your answer comes from."
     )
 
     # create_react_agent implements the ReAct loop (Reason + Act)
@@ -104,6 +107,64 @@ def chat(agent, question: str, session_id: str = "default") -> str:
         config=config,
     )
     return result["messages"][-1].content
+
+
+def stream_chat(agent, question: str, session_id: str = "default"):
+    """Generator that yields (event_type, data) tuples for SSE streaming.
+
+    State machine logic:
+      - Before any tool result: buffer AI tokens (could be reasoning before a tool call)
+      - When a tool call is detected: discard buffer, emit "status"
+      - After first tool result received: stream AI tokens immediately (this is the final answer)
+      - If agent answers with no tool calls at all: flush the buffer as the answer
+
+    This hides the agent's internal monologue ("Let me search...") and only
+    streams the final answer to the user.
+
+    Event types:
+      "status" — agent is searching (show to user as progress indicator)
+      "token"  — a text token from the final answer
+      "done"   — complete answer string (used for caching)
+    """
+    config = {"configurable": {"thread_id": session_id}}
+    full_response = []
+    prev_text = None  # one-chunk lookahead: hold the previous chunk until we know it's safe
+
+    for chunk, metadata in agent.stream(
+        {"messages": [HumanMessage(content=question)]},
+        config,
+        stream_mode="messages",
+    ):
+        if isinstance(chunk, AIMessageChunk):
+            raw = chunk.content
+            if isinstance(raw, list):
+                text = "".join(
+                    block.get("text", "") if isinstance(block, dict) else str(block)
+                    for block in raw
+                )
+            else:
+                text = raw or ""
+
+            if chunk.tool_calls:
+                # Current chunk is a tool call → prev_text was reasoning, discard it
+                prev_text = None
+                yield "status", "Searching 3GPP specifications..."
+            else:
+                # Current chunk is more text → prev_text is confirmed safe to yield
+                if prev_text:
+                    full_response.append(prev_text)
+                    yield "token", prev_text
+                prev_text = text if text else None
+        else:
+            # ToolMessage → prev_text was pre-tool reasoning, discard it
+            prev_text = None
+
+    # End of stream → prev_text is the last token of the final answer
+    if prev_text:
+        full_response.append(prev_text)
+        yield "token", prev_text
+
+    yield "done", "".join(full_response)
 
 
 if __name__ == "__main__":
