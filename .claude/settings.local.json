@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/timcoyle/Projects/3gpp_rag_chat_agent log --oneline -10)"
+    ]
+  }
+}

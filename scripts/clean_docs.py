@@ -19,13 +19,28 @@ from config import DATA_RAW_PATH, DATA_CLEANED_PATH
 
 # Patterns that identify boilerplate lines to drop
 BOILERPLATE_PATTERNS = [
-    r"^3GPP TS \d+\.\d+ V\d+",        # version header lines
-    r"^\s*Release \d+\s*$",            # "Release 17" dividers
-    r"^\s*\d+\s*$",                     # lone page numbers
+    r"^3GPP TS \d+\.\d+ V\d+",            # version header lines
+    r"^\s*Release \d+\s*$",                # "Release 17" dividers
+    r"^\s*\d+\s*$",                         # lone page numbers
     r"^ETSI$",
-    r"^Post address",
-    r"^Copyright Notification",
-    r"^\s*$",                           # blank lines (collapsed later)
+    r"^Post(al)? address",
+    r"^Copyright",
+    r"^No part may be reproduced",
+    r"^The copyright",
+    r".*Trade Mark.*",
+    r".*registered.*benefit.*members.*",
+    r"^Tel\.:.*Fax:",
+    r"^650 Route",
+    r"^Valbonne",
+    r"^Sophia Antipolis",
+    r"^Internet$",
+    r"^http://www\.3gpp\.org",
+    r"^3GPP support office",
+    r"^Postal address",
+    r"^All rights reserved",
+    r".*Organizational Partners.*liability.*",
+    r"^\s*\[\d+\]\s+3GPP (TS|TR) \d+\.\d+", # numbered reference list entries [1] 3GPP TS...
+    r"^\s*$",                               # blank lines (collapsed later)
 ]
 _BOILERPLATE_RE = re.compile("|".join(BOILERPLATE_PATTERNS), re.MULTILINE)
 
@@ -39,15 +54,32 @@ def extract_text_from_zip(zip_path: str) -> str:
                 with z.open(name) as f:
                     texts.append(f.read().decode("utf-8", errors="replace"))
             elif name.endswith((".docx",)):
-                # Lazy import — only needed if docx files are present
                 try:
                     import docx
                     from io import BytesIO
                     with z.open(name) as f:
                         doc = docx.Document(BytesIO(f.read()))
-                        texts.append("\n".join(p.text for p in doc.paragraphs))
+                        blocks = []
+                        for block in doc.element.body:
+                            tag = block.tag.split("}")[-1]
+                            if tag == "p":
+                                # Regular paragraph
+                                para = docx.text.paragraph.Paragraph(block, doc)
+                                if para.text.strip():
+                                    blocks.append(para.text)
+                            elif tag == "tbl":
+                                # Table — render as markdown so LLM understands structure
+                                table = docx.table.Table(block, doc)
+                                rows = []
+                                for i, row in enumerate(table.rows):
+                                    cells = [c.text.strip().replace("\n", " ") for c in row.cells]
+                                    rows.append("| " + " | ".join(cells) + " |")
+                                    if i == 0:
+                                        rows.append("|" + "|".join(["---"] * len(cells)) + "|")
+                                blocks.append("\n".join(rows))
+                        texts.append("\n\n".join(blocks))
                 except ImportError:
-                    print("  [warn] python-docx not installed — skipping .docx extraction")
+                    print("  [warn] python-docx not installed — run: pip install python-docx")
     return "\n".join(texts)
 
 

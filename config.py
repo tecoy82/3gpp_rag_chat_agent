@@ -9,7 +9,7 @@ CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 CHROMA_PATH = os.getenv("CHROMA_PATH", "vectorstore/chroma_db")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
-FLASK_PORT = int(os.getenv("FLASK_PORT", 5000))
+FLASK_PORT = int(os.getenv("FLASK_PORT", 8080))
 FLASK_DEBUG = os.getenv("FLASK_DEBUG", "true").lower() == "true"
 
 CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", 3600))

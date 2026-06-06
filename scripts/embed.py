@@ -21,17 +21,26 @@ hand to the LLM.
 
 import os
 import sys
+import json
+
+import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from config import (
-    DATA_CLEANED_PATH, CHROMA_PATH,
+    DATA_CLEANED_PATH, DATA_CHUNKS_PATH, CHROMA_PATH,
     EMBEDDING_MODEL, CHUNK_SIZE, CHUNK_OVERLAP, RETRIEVER_TOP_K
 )
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain.schema import Document
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
+from langchain_core.documents import Document
+
+# Prefer Apple MPS (Metal) → fall back to CPU. Add "cuda" before "mps" if on Linux/Windows with Nvidia.
+def _best_device() -> str:
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
 
 def load_cleaned_docs(cleaned_dir: str) -> list[Document]:
@@ -58,9 +67,35 @@ def chunk_documents(docs: list[Document]) -> list[Document]:
     return chunks
 
 
+def save_chunks_to_disk(chunks: list[Document], chunks_dir: str):
+    """Write chunks to disk as JSON for inspection and debugging.
+
+    Opens data/chunks/chunks.json to see exactly what text went into each
+    vector — useful for tuning CHUNK_SIZE and CHUNK_OVERLAP.
+    """
+    os.makedirs(chunks_dir, exist_ok=True)
+    out_path = os.path.join(chunks_dir, "chunks.json")
+    records = [
+        {
+            "index": i,
+            "source": doc.metadata.get("source", "unknown"),
+            "char_count": len(doc.page_content),
+            "text": doc.page_content,
+        }
+        for i, doc in enumerate(chunks)
+    ]
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(records, f, indent=2, ensure_ascii=False)
+    print(f"  Chunks written to {out_path} ({len(records)} entries)")
+
+
 def build_vectorstore(chunks: list[Document]) -> Chroma:
-    print(f"  Loading embedding model: {EMBEDDING_MODEL}")
-    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+    device = _best_device()
+    print(f"  Loading embedding model: {EMBEDDING_MODEL} (device: {device})")
+    embeddings = HuggingFaceEmbeddings(
+        model_name=EMBEDDING_MODEL,
+        model_kwargs={"device": device},
+    )
 
     print(f"  Building ChromaDB index at {CHROMA_PATH} ...")
     vectorstore = Chroma.from_documents(
@@ -68,7 +103,6 @@ def build_vectorstore(chunks: list[Document]) -> Chroma:
         embedding=embeddings,
         persist_directory=CHROMA_PATH,
     )
-    vectorstore.persist()
     print(f"  Indexed {len(chunks)} chunks")
     return vectorstore
 
@@ -90,6 +124,7 @@ def main():
         return
 
     chunks = chunk_documents(docs)
+    save_chunks_to_disk(chunks, DATA_CHUNKS_PATH)
     vectorstore = build_vectorstore(chunks)
     smoke_test(vectorstore)
     print("\nDone. Next step: run the agent or app.py")

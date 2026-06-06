@@ -10,6 +10,7 @@ Wired together:
 
 import os
 import sys
+import time
 import uuid
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -48,19 +49,23 @@ def chat_endpoint():
     if not question:
         return jsonify({"error": "question is required"}), 400
 
+    start = time.time()
+
     # Semantic cache check
     cached = _cache.get(question)
     if cached:
-        return jsonify({"answer": cached, "session_id": session_id, "cached": True})
+        duration = round(time.time() - start, 3)
+        return jsonify({"answer": cached, "session_id": session_id, "cached": True, "duration_s": duration})
 
     # Agent call
     answer = chat(_agent, question, session_id)
+    duration = round(time.time() - start, 3)
 
     # Store in cache
     _cache.set(question, answer)
     _cache.evict_expired()
 
-    return jsonify({"answer": answer, "session_id": session_id, "cached": False})
+    return jsonify({"answer": answer, "session_id": session_id, "cached": False, "duration_s": duration})
 
 
 @app.route("/health")
